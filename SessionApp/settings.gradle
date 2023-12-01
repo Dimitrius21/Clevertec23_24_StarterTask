@@ -1,0 +1,3 @@
+rootProject.name = 'SessionTask'
+include 'session-inject-spring-boot-starter'
+
