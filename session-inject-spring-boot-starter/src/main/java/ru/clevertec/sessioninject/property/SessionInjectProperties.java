@@ -1,4 +1,4 @@
-package ru.clevertec.sessioninject;
+package ru.clevertec.sessioninject.property;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

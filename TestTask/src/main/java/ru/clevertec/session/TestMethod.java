@@ -1,9 +1,12 @@
 package ru.clevertec.session;
 
 import org.springframework.stereotype.Component;
-import ru.clevertec.sessioninject.StarterSession;
+import ru.clevertec.session.domain.MySession;
+import ru.clevertec.session.service.BlackListMemory;
+import ru.clevertec.session.service.BlackListMemory2;
+import ru.clevertec.sessioninject.domain.StarterSession;
 import ru.clevertec.sessioninject.interfaces.LoginSupplier;
-import ru.clevertec.sessioninject.interfaces.SessionInject;
+import ru.clevertec.sessioninject.annotation.SessionInject;
 
 @Component
 public class TestMethod {
@@ -28,6 +31,15 @@ public class TestMethod {
         System.out.println(result);
         return result;
     }
+
+    @SessionInject(blackList = {BlackListMemory.class, BlackListMemory2.class})
+    public String methodFour(String str, MySession session, LoginSupplier login) {
+        System.out.println("methodFour");
+        String result = "Session for methodFour: " + session;
+        System.out.println(result);
+        return result;
+    }
+
 
     @Override
     public String toString() {

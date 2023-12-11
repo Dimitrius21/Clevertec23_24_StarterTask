@@ -1,4 +1,4 @@
-package ru.clevertec.sessioninject;
+package ru.clevertec.sessioninject.domain;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -14,4 +14,8 @@ public class StarterSession {
     private String login;
     private LocalDateTime createTime;
 
+    @Override
+    public String toString() {
+        return "id=" + id + ", login='" + login + "', create at " + createTime;
+    }
 }

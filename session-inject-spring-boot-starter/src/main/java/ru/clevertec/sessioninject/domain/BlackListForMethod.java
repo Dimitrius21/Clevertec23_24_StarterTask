@@ -1,4 +1,4 @@
-package ru.clevertec.sessioninject.util;
+package ru.clevertec.sessioninject.domain;
 
 import java.lang.reflect.Method;
 import java.util.List;
