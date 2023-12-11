@@ -1,8 +1,9 @@
 package ru.clevertec.sessioninject.interfaces;
 
 
-import ru.clevertec.sessioninject.StarterSession;
+import ru.clevertec.sessioninject.domain.StarterSession;
 
 public interface SessionSupplier {
-    public StarterSession getSession(String login);
+    StarterSession getSession(String login);
+    void setUrl(String url);
 }

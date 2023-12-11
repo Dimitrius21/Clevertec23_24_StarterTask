@@ -1,16 +1,16 @@
 package ru.clevertec.sessioninject.proxy;
 
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.cglib.proxy.Enhancer;
-import ru.clevertec.sessioninject.StarterSession;
+import ru.clevertec.sessioninject.domain.StarterSession;
 import ru.clevertec.sessioninject.exception.CreateObjectException;
 import ru.clevertec.sessioninject.interfaces.BlackListSupplier;
 import ru.clevertec.sessioninject.interfaces.LoginSupplier;
-import ru.clevertec.sessioninject.interfaces.SessionInject;
+import ru.clevertec.sessioninject.annotation.SessionInject;
 import ru.clevertec.sessioninject.interfaces.SessionSupplier;
-import ru.clevertec.sessioninject.util.BlackListForMethod;
+import ru.clevertec.sessioninject.domain.BlackListForMethod;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -21,34 +21,35 @@ import java.util.List;
 import java.util.Map;
 
 
-@AllArgsConstructor
+@RequiredArgsConstructor
 public class SessionInjectionBeanPostProcessor implements BeanPostProcessor {
-    private static Map<String, List<BlackListForMethod>> objectAnnotatedMethod = new HashMap<>();
-    private static Map<Class, BlackListSupplier> blackListSupplierObjects = new HashMap<>();
-    private SessionSupplier sessionSupplier;
-    private BlackListSupplier bannedSupplier;
-
+    private Map<String, List<BlackListForMethod>> objectsHaveAnnotatedMethods = new HashMap<>();
+    private final Map<Class, BlackListSupplier> blackListSupplierObjects;
+    private final SessionSupplier sessionSupplier;
+    private final BlackListSupplier bannedSupplierInProperty;
+    private int[] position = new int[2];
 
     @Override
     public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
+
         Method[] methods = bean.getClass().getDeclaredMethods();
         List<BlackListForMethod> methodForInjection = Arrays.stream(methods)
-                .filter(SessionInjectionBeanPostProcessor::isMethodAnnotatedCorrect)
-                .map(SessionInjectionBeanPostProcessor::getBlackListClasses)
+                .filter(this::isMethodAnnotatedCorrect)
+                .map(this::getBlackListClasses)
                 .toList();
         if (methodForInjection.size() > 0) {
-            objectAnnotatedMethod.put(beanName, methodForInjection);
+            objectsHaveAnnotatedMethods.put(beanName, methodForInjection);
         }
         return bean;
     }
 
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
-        if (objectAnnotatedMethod.get(beanName) != null) {
+        if (objectsHaveAnnotatedMethods.get(beanName) != null) {
             Enhancer enhancer = new Enhancer();
             enhancer.setSuperclass(bean.getClass());
-            enhancer.setCallback(new SessionInjectProxy(sessionSupplier, objectAnnotatedMethod.get(beanName),
-                    bannedSupplier, blackListSupplierObjects));
+            enhancer.setCallback(new SessionInjectInterceptor(sessionSupplier, objectsHaveAnnotatedMethods.get(beanName),
+                    bannedSupplierInProperty, blackListSupplierObjects, position));
             bean = enhancer.create();
         }
         return bean;
@@ -56,42 +57,47 @@ public class SessionInjectionBeanPostProcessor implements BeanPostProcessor {
 
     /**
      * Проверяет метод на предмет его соответствия требованиям для добавления логики получения Сессии
-     * (анотация, в аргументах метода есть Сессии и LoginSupplier)
+     * (анотация, в аргументах метода есть Сессия и LoginSupplier)
+     *
      * @param method анализируемый метод
      * @return true/false в зависимости от соответствия
      */
-    private static boolean isMethodAnnotatedCorrect(Method method) {
+    private boolean isMethodAnnotatedCorrect(Method method) {
         boolean hasSession = false;
         boolean hasLoginSupplier = false;
         if (method.isAnnotationPresent(SessionInject.class)) {
             Class[] parameters = method.getParameterTypes();
-            for (Class param : parameters) {
-                if (param == StarterSession.class) {
+            for (int i = 0; i < parameters.length; i++) {
+                if (isStarterSession(parameters[i])) {
                     hasSession = true;
-                    continue;
+                    position[0] = i;
                 }
-                if (param == LoginSupplier.class) {
+                if (hasLoginSupplierInterface(parameters[i])) {
                     hasLoginSupplier = true;
+                    position[1] = i;
+                }
+                if (hasSession & hasLoginSupplier) {
+                    return true;
                 }
             }
         }
-        return hasSession & hasLoginSupplier;
+        return false;
     }
 
     /**
      * Создать record содержащий имя метода и список классов, поставляющих заблокированные логины, указанный в
      * анотации над методом
+     *
      * @param method анализируемый метод
      * @return record с данными
      */
 
-    private static BlackListForMethod getBlackListClasses(Method method) {
+    private BlackListForMethod getBlackListClasses(Method method) {
         SessionInject annotation = method.getAnnotation(SessionInject.class);
         List<Class> blackListSupplierClasses = Arrays.asList(annotation.blackList());
         blackListSupplierClasses.forEach((it -> {
             if (blackListSupplierObjects.get(it) == null) {
-                BlackListSupplier supplier = instantiateClass(it);
-                blackListSupplierObjects.put(it, supplier);
+                throw new CreateObjectException("No bean for " + it.getName());
             }
         }));
         return new BlackListForMethod(method, blackListSupplierClasses);
@@ -99,10 +105,11 @@ public class SessionInjectionBeanPostProcessor implements BeanPostProcessor {
 
     /**
      * Создает объект класса, являющего поставщиком списка заблокированных логинов,
+     *
      * @param clazz - класса, являющей поставщиком списка заблокированных логинов - реализующий интерфейс BlackListSupplier
      * @return объект класса
      */
-    private static BlackListSupplier instantiateClass(Class clazz) {
+    private BlackListSupplier instantiateClass(Class clazz) {
         if (Arrays.asList(clazz.getInterfaces()).contains(BlackListSupplier.class)) {
             try {
                 Constructor<BlackListSupplier> constructor = clazz.getConstructor();
@@ -114,6 +121,74 @@ public class SessionInjectionBeanPostProcessor implements BeanPostProcessor {
             }
         } else {
             throw new CreateObjectException("Class " + clazz.getName() + " do not implement interface BlackListSupplier.class");
+        }
+    }
+
+    /**
+     * Проверяет, что переданный класс имеет тип StarterSession или что в иерархии наследования есть класс с таким типом
+     *
+     * @param clazz проверяемый класс
+     * @return true/false как результат проверки
+     */
+    private boolean isStarterSession(Class clazz) {
+        if (clazz.isPrimitive() || clazz.isInterface()) {
+            return false;
+        }
+        if (clazz == StarterSession.class) {
+            return true;
+        }
+        Class parent = clazz.getSuperclass();
+        if (parent == Object.class) {
+            return false;
+        } else {
+            return isStarterSession(parent);
+        }
+    }
+
+    /**
+     * Проверяет, что переданный класс имеет реализацию интерфейса LoginSupplier
+     *
+     * @param clazz - проверяемый класс
+     * @return true/false как результат проверки
+     */
+    private boolean hasLoginSupplierInterface(Class clazz) {
+        if (clazz.isPrimitive()) {
+            return false;
+        }
+        if (clazz.isInterface()) {
+            return isLoginSupplier(clazz);
+        } else {
+            return isClassImplementsLoginSupplier(clazz);
+        }
+    }
+
+    /**
+     * Проверяет что полученный класс интерфейса есть или имеет в иерархии LoginSupplier
+     *
+     * @param clazz проверяемый класс интерфейса
+     * @return true/false как результат проверки
+     */
+    private boolean isLoginSupplier(Class clazz) {
+        if (clazz == LoginSupplier.class) {
+            return true;
+        }
+        Class[] extendInterfaces = clazz.getInterfaces();
+        if (extendInterfaces.length == 0) {
+            return false;
+        }
+        return Arrays.stream(extendInterfaces).anyMatch(this::isLoginSupplier);
+    }
+
+    private boolean isClassImplementsLoginSupplier(Class clazz) {
+        Class[] interfaces = clazz.getInterfaces();
+        if (Arrays.stream(interfaces).anyMatch(this::isLoginSupplier)) {
+            return true;
+        }
+        Class parent = clazz.getSuperclass();
+        if (parent == Object.class) {
+            return false;
+        } else {
+            return isClassImplementsLoginSupplier(parent);
         }
     }
 }

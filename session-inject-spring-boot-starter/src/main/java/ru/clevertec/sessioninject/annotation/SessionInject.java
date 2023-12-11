@@ -1,4 +1,4 @@
-package ru.clevertec.sessioninject.interfaces;
+package ru.clevertec.sessioninject.annotation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
